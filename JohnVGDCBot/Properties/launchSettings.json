@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "JohnVGDCBot": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
