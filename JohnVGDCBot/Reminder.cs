@@ -13,9 +13,37 @@ using Microsoft.EntityFrameworkCore;
 
 namespace JohnVGDCBot
 {
-    public partial class ReminderModule(ISchedulerFactory schedulerFactory, BotDbContext db) 
+    public static class VGDCColors
+    {
+        public static readonly Color Teal = new(0x267392);
+        public static readonly Color Cerulean = new(0x3C99AA);
+        public static readonly Color Aqua = new(0x0EB9AE);
+        public static readonly Color Mint = new(0x50D0A1);
+    }
+    
+    public partial class ReminderModule(ISchedulerFactory schedulerFactory, BotDbContext db, GatewayClient client) 
         : ApplicationCommandModule<ApplicationCommandContext>
     {
+        public record struct ReminderJobData(
+            string Title,
+            ulong GuildId, 
+            ulong ChannelId, 
+            ulong CreatorId, 
+            string? UserIdString,
+            string? GroupName, 
+            string? Message)
+        {
+            public ReminderJobData(JobDataMap data) : this(
+                    data.GetString("title") ?? throw new InvalidOperationException("title missing"),
+                    ulong.Parse(data.GetString("guildId") ?? throw new InvalidOperationException("guildId missing")),
+                    ulong.Parse(data.GetString("channelId") ?? throw new InvalidOperationException("channelId missing")),
+                    ulong.Parse(data.GetString("creatorId") ?? throw new InvalidOperationException("creatorId missing")),
+                    data.GetString("group"),
+                    data.GetString("group"),
+                    data.GetString("message")
+                ) {}
+        }
+
         public enum Month
         {
             January = 1,
@@ -134,10 +162,18 @@ namespace JohnVGDCBot
             ulong guildId = Context.Guild?.Id
                 ?? throw new NullReferenceException("Guild is null");
 
+            bool groupExists = await db.ReminderGroups.AnyAsync(rg => rg.GuildId == guildId && rg.Name == name);
+            if (groupExists)
+            {
+                await RespondError($"❌ Group with the name \"{name}\" already exists");
+                return;
+            }
+
             var group = new ReminderGroup
             {
                 Name = name,
                 GuildId = guildId,
+                CreatorId = Context.User.Id,
                 Members = [.. matches.Select(m => new ReminderGroupMember
                 {
                     MemberId = ulong.Parse(m.Groups["id"].Value),
@@ -148,7 +184,212 @@ namespace JohnVGDCBot
             db.ReminderGroups.Add(group);
             await db.SaveChangesAsync();
 
-            await RespondAsync(InteractionCallback.Message($"Created a new reminder group: {name}"));
+            await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() {
+                Title = "Group Created",
+                Description = "A new group was created",
+                Timestamp = DateTime.UtcNow,
+                Color = VGDCColors.Cerulean,
+                Fields = 
+                [
+                    new() 
+                    {
+                        Name = "Group Name",
+                        Value = @name,
+                    }, 
+                    new() 
+                    {
+                        Name = "Members",
+                        Value = membersList.Replace(' ', '\n'),
+                    }
+                ],
+            }]}));
+        }
+
+        [SlashCommand("deleteremindergroup", "Deletes a new reminder group")]
+        public async Task DeleteReminderGroup(
+            [SlashCommandParameter(Name = "name", Description = "The name of the reminder group")] string @name
+            )
+        {
+            ulong guildId = Context.Guild?.Id
+                ?? throw new NullReferenceException("Guild is null");
+
+            ReminderGroup? group = await db.ReminderGroups.FirstOrDefaultAsync(rg => rg.GuildId == guildId && rg.Name == name);
+            if (group == null)
+            {
+                await RespondError($"❌ No group with the name \"{name}\" exists");
+                return;
+            }
+
+            db.ReminderGroups.Remove(group);
+            await db.SaveChangesAsync();
+
+            await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() {
+                Title = "Group Deleted",
+                Description = $"Deleted group \"{group.Name}\"",
+                Timestamp = DateTime.UtcNow,
+                Color = VGDCColors.Cerulean,
+            }]}));
+        }
+
+        [SlashCommand("listremindergroups", "Lists all reminder groups you created or are a part of")]
+        public async Task ListReminderGroups()
+        {
+            var guildId = Context.Guild!.Id;
+            var userId = Context.User.Id;
+
+            var guildUser = Context.User as GuildUser;
+            var userRoleIds = guildUser!.RoleIds ?? [];
+
+            var allGroups = await db.ReminderGroups
+                .Include(rg => rg.Members)
+                .Where(rg => rg.GuildId == guildId && (
+                    rg.CreatorId == userId ||
+                    rg.Members.Any(m =>
+                        (!m.IsRole && m.MemberId == userId) ||
+                        (m.IsRole && userRoleIds.Contains(m.MemberId)))))
+                .ToListAsync();
+
+            if (allGroups.Count == 0)
+            {
+                await RespondAsync(InteractionCallback.Message(new()
+                {
+                    Content = "You are not part of any groups! Create one with /createremindergroup",
+                }));
+                return;
+            }
+
+            var createdGroups = allGroups.Where(rg => rg.CreatorId == userId);
+            var memberGroupsWithMention = allGroups.Select(group =>
+            {
+                var matchingMember = group.Members.FirstOrDefault(m =>
+                    (!m.IsRole && m.MemberId == userId) ||
+                    (m.IsRole && userRoleIds.Contains(m.MemberId)));
+
+                var mention = matchingMember switch
+                {
+                    null => "unknown",
+                    { IsRole: true } m => $"<@&{m.MemberId}>",
+                    { IsRole: false } m => $"<@{m.MemberId}>",
+                };
+
+                return $"\"{group.Name}\" from {mention}";
+            }).ToList();
+
+            await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() 
+            {
+                Title = "My Groups",
+                Description = "These are all of your groups",
+                Timestamp = DateTime.UtcNow,
+                Color = VGDCColors.Cerulean,
+                Fields = 
+                [
+                    new() 
+                    {
+                        Name = "Groups Created",
+                        Value = string.Join('\n', createdGroups.Select(rg => $"\"{rg.Name}\"")),
+                    }, 
+                    new() 
+                    {
+                        Name = "Groups You Are In",
+                        Value = string.Join('\n', memberGroupsWithMention),
+                    }
+                ],
+            }]}));
+        }
+
+        [SlashCommand("addmemberstogroup", "Adds members to a group")]
+        public async Task AddMemberToGroup(
+            [SlashCommandParameter(Name = "name", Description = "The name of the reminder group")] string @name,
+            //[SlashCommandParameter(Name = "Description")] string description = "",
+            [SlashCommandParameter(Name = "members", Description = "Mention members or roles to add to the group, e.g. @Alice @Bob @Role")] string membersList = ""
+            )
+        {
+            var matches = DiscordMemberIdRegex().Matches(membersList);
+
+            ulong guildId = Context.Guild?.Id
+                ?? throw new NullReferenceException("Guild is null");
+
+            ReminderGroup? group = await db.ReminderGroups.FirstOrDefaultAsync(rg => rg.GuildId == guildId && rg.Name == name);
+            if (group == null)
+            {
+                await RespondError($"❌ No group with the name \"{name}\" exists");
+                return;
+            }
+
+            var membersToAdd = matches.Select(m => new ReminderGroupMember
+            {
+                MemberId = ulong.Parse(m.Groups["id"].Value),
+                IsRole = m.Groups["role"].Success
+            });
+
+            group.Members.AddRange(membersToAdd);
+            await db.SaveChangesAsync();
+
+            await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() {
+                Title = "Members Added",
+                Description = $"Added {((List<ReminderGroupMember>)membersToAdd).Count} members to \"{group.Name}\"",
+                Timestamp = DateTime.UtcNow,
+                Color = VGDCColors.Cerulean,
+                Fields = 
+                [
+                    new() 
+                    {
+                        Name = "New Members",
+                        Value = membersList.Replace(' ', '\n'),
+                    }
+                ],
+            }]}));
+        }
+
+        [SlashCommand("removemembersfromgroup", "Removes members from a group")]
+        public async Task RemoveMembersFromGroup(
+            [SlashCommandParameter(Name = "name", Description = "The name of the reminder group")] string @name,
+            //[SlashCommandParameter(Name = "Description")] string description = "",
+            [SlashCommandParameter(Name = "members", Description = "Mention members or roles to remove from the group, e.g. @Alice @Bob @Role")] string membersList = ""
+            )
+        {
+            var matches = DiscordMemberIdRegex().Matches(membersList);
+
+            ulong guildId = Context.Guild?.Id
+                ?? throw new NullReferenceException("Guild is null");
+
+            ReminderGroup? group = await db.ReminderGroups.FirstOrDefaultAsync(rg => rg.GuildId == guildId && rg.Name == name);
+            if (group == null)
+            {
+                await RespondError($"❌ No group with the name \"{name}\" exists");
+                return;
+            }
+
+            var membersToRemove = matches.Select(m => new ReminderGroupMember
+            {
+                MemberId = ulong.Parse(m.Groups["id"].Value),
+                IsRole = m.Groups["role"].Success
+            });
+
+            group.Members.RemoveAll(m => membersToRemove.Any(mr => mr == m));
+            await db.SaveChangesAsync();
+
+            await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() {
+                Title = "Members Removed",
+                Description = $"Removed {((List<ReminderGroupMember>)membersToRemove).Count} members from \"{group.Name}\"",
+                Timestamp = DateTime.UtcNow,
+                Color = VGDCColors.Cerulean,
+                Fields = 
+                [
+                    new() 
+                    {
+                        Name = "Members Removed",
+                        Value = membersList.Replace(' ', '\n'),
+                    }
+                ],
+            }]}));
+        }
+
+        public static T GetItemFromJobDataMap<T>(JobDataMap data, string key)
+        {
+            if (!data.TryGetValue("guildId", out object ?value) || value == null)
+                throw new InvalidOperationException("guildId missing from job data");
+            return (T)value;
         }
 
         public class ReminderJob(GatewayClient client, BotDbContext db) : IJob
@@ -159,21 +400,15 @@ namespace JohnVGDCBot
             {
                 var data = context.JobDetail.JobDataMap;
 
-                var guildIdStr = data.GetString("guildId")
-                    ?? throw new InvalidOperationException("guildId missing from job data");
-                var guildId = ulong.Parse(guildIdStr);
-                var channelIdStr = data.GetString("channelId") 
-                    ?? throw new InvalidOperationException("channelId missing from job data");
-                var channel = await client.Rest.GetChannelAsync(ulong.Parse(channelIdStr));
-                var message = data.GetString("message");
-                data.TryGetString("group", out string? group);
+                var reminder = new ReminderJobData(data);
+                var channel = await client.Rest.GetChannelAsync(reminder.ChannelId);
 
                 string mentionsString;
-                if (group != null)
+                if (reminder.GroupName != null)
                 {
                     var reminderGroup = await db.ReminderGroups
                         .Include(rg => rg.Members)
-                        .SingleOrDefaultAsync(rg => rg.GuildId == guildId && rg.Name == group);
+                        .SingleOrDefaultAsync(rg => rg.GuildId == reminder.GuildId && rg.Name == reminder.GroupName);
                     if (reminderGroup == null) return;
 
                     var mentionsList = reminderGroup.Members
@@ -184,13 +419,13 @@ namespace JohnVGDCBot
                 }
                 else
                 {
-                    var userIdStr = data.GetString("userId")
+                    var userIdStr = reminder.UserIdString
                         ?? throw new ArgumentException("Job execution context has job data without a group or user");
 
                     mentionsString = $"<@{userIdStr}>";
                 }
 
-                string content = $"{mentionsString} {message ?? defaultMessage}";
+                string content = $"{mentionsString} {reminder.Message ?? defaultMessage}";
 
                 await ((TextChannel)channel).SendMessageAsync(new MessageProperties { Content = content } );
             }
@@ -237,16 +472,18 @@ namespace JohnVGDCBot
             IJobDetail job = JobBuilder.Create<ReminderJob>()
                 .WithIdentity(title, "reminders")
                 .WithDescription(details)
+                .UsingJobData("title", title!)
                 .UsingJobData("guildId", (guild?.Id ?? throw new InvalidOperationException("Guild is null")).ToString())
                 .UsingJobData("channelId", (channel?.Id ?? currentChannel.Id).ToString())
                 .UsingJobData("message", message)
+                .UsingJobData("creatorId", Context.User.Id.ToString())
                 .StoreDurably()
                 .Build();
             if (group != null) job.JobDataMap["group"] = group;
             else job.JobDataMap["userId"] = Context.User.Id.ToString();
 
             var triggerBuilder = TriggerBuilder.Create()
-                .WithIdentity(title, "reminder-triggers")
+                .WithIdentity(title!, "reminder-triggers")
                 .StartAt(reminderDateUTC);
             if (frequency != Frequency.OneTime)
                 triggerBuilder.WithCalendarIntervalSchedule(b => GetScheduleWithInterval(b, frequency)
@@ -258,7 +495,105 @@ namespace JohnVGDCBot
             await scheduler.ScheduleJob(job, trigger);
         }
 
+        [SlashCommand("listreminders", "Lists all reminders you have")]
+        public async Task ListReminders()
+        {
+            var guildId = Context.Guild!.Id;
+            var userId = Context.User.Id;
+
+            var guildUser = Context.User as GuildUser;
+            var userRoleIds = guildUser!.RoleIds ?? [];
+
+            IScheduler scheduler = await schedulerFactory.GetScheduler();
+            var jobKeys = await scheduler.GetJobKeys(Quartz.Impl.Matchers.GroupMatcher<JobKey>.GroupEquals("reminders"));
+
+            var userReminders = new List<EmbedFieldProperties>();
+            foreach (var key in jobKeys)
+            {
+                var job = await scheduler.GetJobDetail(key);
+                if (job == null) continue;
+                var reminder = new ReminderJobData(job.JobDataMap);
+
+                var triggers = await scheduler.GetTriggersOfJob(key);
+                var nextFireTime = triggers.FirstOrDefault()?.GetNextFireTimeUtc();
+
+                string mentionsString;
+                if (reminder.GroupName != null)
+                {
+                    var reminderGroup = await db.ReminderGroups
+                        .Include(rg => rg.Members)
+                        .SingleOrDefaultAsync(rg => rg.GuildId == reminder.GuildId && rg.Name == reminder.GroupName);
+                    if (reminderGroup == null) return;
+
+                    mentionsString = string.Join(" ", reminderGroup.Members
+                        .Select(m => m.IsRole ? $"<@&{m.MemberId}>" : $"<@{m.MemberId}>"));
+                }
+                else
+                {
+                    var targetUserId = reminder.UserIdString ?? throw new InvalidOperationException("userId missing");
+                    mentionsString = $"<@{targetUserId}>";
+                }
+
+                userReminders.Add(new()
+                {
+                    Name = reminder.Title,
+                    Value = $"for {mentionsString} at {nextFireTime?.ToLocalTime().ToString()}",
+                });
+            }
+
+            await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() 
+            {
+                Title = "My Reminders",
+                Description = "These are all of the reminders set for you",
+                Timestamp = DateTime.UtcNow,
+                Color = VGDCColors.Cerulean,
+                Fields = userReminders,
+            }]}));
+        }
+
+        public class ReminderAutocompleteProvider(ISchedulerFactory schedulerFactory)
+            : IAutocompleteProvider<AutocompleteInteractionContext>
+        {
+            public async ValueTask<IEnumerable<ApplicationCommandOptionChoiceProperties>?> GetChoicesAsync(
+                ApplicationCommandInteractionDataOption option, 
+                AutocompleteInteractionContext context)
+            {
+                var scheduler = await schedulerFactory.GetScheduler();
+
+                var jobKeys = await scheduler.GetJobKeys(Quartz.Impl.Matchers.GroupMatcher<JobKey>.GroupEquals("reminders"));
+                
+                var choices = new List<ApplicationCommandOptionChoiceProperties>();
+                foreach (var key in jobKeys)
+                {
+                    var job = await scheduler.GetJobDetail(key);
+                    if (job?.JobDataMap.GetString("creatorId") != context.User.Id.ToString()) continue;
+
+                    choices.Add(new ApplicationCommandOptionChoiceProperties(key.Name, key.Name));
+                }
+
+                return choices;
+            }
+        }
+
+        [SlashCommand("deletereminder", "Deletes a reminder")]
+        public async Task DeleteReminder(
+            [SlashCommandParameter(Name = "title", Description = "The reminder to delete", 
+                AutocompleteProviderType = typeof(ReminderAutocompleteProvider))] string title)
+        {
+            var scheduler = await schedulerFactory.GetScheduler();
+            var deleted = await scheduler.DeleteJob(new JobKey(title, "reminders"));
+
+            if (!deleted)
+            {
+                await RespondError("❌ Reminder not found.");
+                return;
+            }
+
+            await RespondAsync(InteractionCallback.Message($"✅ Reminder \"{title}\" deleted."));
+        }
+
         [GeneratedRegex(@"<@(?:(?<role>&)|!?)(?<id>\d+)>")]
         private static partial Regex DiscordMemberIdRegex();
     }
+
 }

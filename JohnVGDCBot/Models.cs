@@ -18,6 +18,7 @@ namespace JohnVGDCBot
         public int Id { get; set; }
         public string Name { get; set; } = null!;
         public ulong GuildId { get; set; }
+        public ulong CreatorId { get; set; }
         public List<ReminderGroupMember> Members { get; set; } = [];
     }
 
