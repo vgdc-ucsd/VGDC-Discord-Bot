@@ -11,11 +11,7 @@ using Quartz;
 
 var appBuilder = Host.CreateApplicationBuilder(args);
 
-string discordToken = appBuilder.Configuration["Discord:Token"]
-    ?? throw new InvalidOperationException("Discord bot token is missing");
-
 var dbPath = Path.Combine(AppContext.BaseDirectory, "bot.db");
-Console.WriteLine($"Database path: {dbPath}");
 
 appBuilder.Services.AddDbContext<BotDbContext>(o =>
 {
@@ -37,7 +33,6 @@ var host = appBuilder.Build();
 
 host.AddSlashCommand("hello", "Says hello!", () => "Hello, I'm John VGDC!");
 host.AddModules(typeof(Program).Assembly);
-//host.AddModules(typeof(ReminderModule).Assembly);
 
 await host.RunAsync();
 
