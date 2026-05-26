@@ -19,6 +19,8 @@ spec:
       - name: sqlite-data
         persistentVolumeClaim:
           claimName: sqlite-pvc
+      imagePullSecrets:
+      - name: ghcr-pull-secret
       containers:
       - name: bot
         image: {{ .Values.image.name }}:{{ .Values.image.tag | default "latest" }}
