@@ -27,7 +27,7 @@ spec:
         imagePullPolicy: Always
         envFrom:
         - secretRef:
-            name: bot-secrets
+            name: vgdc-discord-bot-token
         - configMapRef:
             name: bot-config
         volumeMounts:
