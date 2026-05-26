@@ -1,0 +1,10 @@
+image:
+  name: vgdc-discord-bot
+  tag: latest
+
+bot:
+  token: ""
+
+storage:
+  volumeName: "" 
+  size: 1Gi
