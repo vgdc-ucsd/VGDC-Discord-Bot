@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot
+  labels:
+    app: bot
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: bot
+  template: 
+    metadata: 
+      labels: 
+        app: bot
+    spec:
+      volumes:
+      - name: sqlite-data
+        persistentVolumeClaim:
+          claimName: bot-pvc
+      containers:
+      - name: bot
+        image: {{ .Values.image.name }}:{{ .Values.image.tag | default "latest" }}
+        imagePullPolicy: Always
+        envFrom:
+        - secretRef:
+            name: bot-secrets
+        - configMapRef:
+            name: bot-config
+        volumeMounts:
+        - name: sqlite-data
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - pgrep
+            - -f
+            - vgdc-discord-bot
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "100m"

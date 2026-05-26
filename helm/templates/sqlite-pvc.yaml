@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sqlite-pvc
+spec:
+  {{- if .Values.storage.volumeName }}
+  volumeName: {{ .Values.storage.volumeName }}
+  {{- end }}
+accessModes:
+  - ReadWriteOnce
+resources:
+  requests:
+    storage: {{ .Values.storage.size }}
