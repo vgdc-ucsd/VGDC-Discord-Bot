@@ -6,8 +6,8 @@ spec:
   {{- if .Values.storage.volumeName }}
   volumeName: {{ .Values.storage.volumeName }}
   {{- end }}
-accessModes:
-  - ReadWriteOnce
-resources:
-  requests:
-    storage: {{ .Values.storage.size }}
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.storage.size }}
