@@ -18,7 +18,7 @@ spec:
       volumes:
       - name: sqlite-data
         persistentVolumeClaim:
-          claimName: bot-pvc
+          claimName: sqlite-pvc
       containers:
       - name: bot
         image: {{ .Values.image.name }}:{{ .Values.image.tag | default "latest" }}
