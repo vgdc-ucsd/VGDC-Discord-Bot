@@ -35,8 +35,8 @@ spec:
         - name: sqlite-data
           mountPath: /data
         - name: appsettings-secret
-          mountpath: /app/appsettings.json
-          subpath: appsettings.json
+          mountPath: /app/appsettings.json
+          subPath: appsettings.json
           readOnly: true
         livenessProbe:
           exec:
