@@ -31,6 +31,12 @@ appBuilder.Services.AddQuartzHostedService(q =>
 
 var host = appBuilder.Build();
 
+using (var scope = host.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<BotDbContext>();
+    await db.Database.MigrateAsync();
+}
+
 host.AddSlashCommand("hello", "Says hello!", () => "Hello, I'm John VGDC!");
 host.AddModules(typeof(Program).Assembly);
 
