@@ -11,7 +11,7 @@ using Quartz;
 
 var appBuilder = Host.CreateApplicationBuilder(args);
 
-var dbPath = Path.Combine(AppContext.BaseDirectory, "bot.db");
+var dbPath = Path.Combine("/data", "bot.db");
 
 appBuilder.Services.AddDbContext<BotDbContext>(o =>
 {
