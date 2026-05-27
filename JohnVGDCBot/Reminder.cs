@@ -38,7 +38,7 @@ namespace JohnVGDCBot
                     ulong.Parse(data.GetString("guildId") ?? throw new InvalidOperationException("guildId missing")),
                     ulong.Parse(data.GetString("channelId") ?? throw new InvalidOperationException("channelId missing")),
                     ulong.Parse(data.GetString("creatorId") ?? throw new InvalidOperationException("creatorId missing")),
-                    data.GetString("group"),
+                    data.GetString("userId"),
                     data.GetString("group"),
                     data.GetString("message")
                 ) {}
@@ -281,17 +281,17 @@ namespace JohnVGDCBot
                 Description = "These are all of your groups",
                 Timestamp = DateTime.UtcNow,
                 Color = VGDCColors.Cerulean,
-                Fields = 
+                Fields =
                 [
-                    new() 
+                    new()
                     {
                         Name = "Groups Created",
-                        Value = string.Join('\n', createdGroups.Select(rg => $"\"{rg.Name}\"")),
-                    }, 
-                    new() 
+                        Value = createdGroups.Any() ? string.Join('\n', createdGroups.Select(rg => $"\"{rg.Name}\"")) : "None",
+                    },
+                    new()
                     {
                         Name = "Groups You Are In",
-                        Value = string.Join('\n', memberGroupsWithMention),
+                        Value = memberGroupsWithMention.Count > 0 ? string.Join('\n', memberGroupsWithMention) : "None",
                     }
                 ],
             }]}));
@@ -320,14 +320,14 @@ namespace JohnVGDCBot
             {
                 MemberId = ulong.Parse(m.Groups["id"].Value),
                 IsRole = m.Groups["role"].Success
-            });
+            }).ToList();
 
             group.Members.AddRange(membersToAdd);
             await db.SaveChangesAsync();
 
             await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() {
                 Title = "Members Added",
-                Description = $"Added {((List<ReminderGroupMember>)membersToAdd).Count} members to \"{group.Name}\"",
+                Description = $"Added {membersToAdd.Count} members to \"{group.Name}\"",
                 Timestamp = DateTime.UtcNow,
                 Color = VGDCColors.Cerulean,
                 Fields = 
@@ -364,14 +364,14 @@ namespace JohnVGDCBot
             {
                 MemberId = ulong.Parse(m.Groups["id"].Value),
                 IsRole = m.Groups["role"].Success
-            });
+            }).ToList();
 
-            group.Members.RemoveAll(m => membersToRemove.Any(mr => mr == m));
+            group.Members.RemoveAll(m => membersToRemove.Any(mr => mr.MemberId == m.MemberId && mr.IsRole == m.IsRole));
             await db.SaveChangesAsync();
 
             await RespondAsync(InteractionCallback.Message(new() { Embeds = [ new() {
                 Title = "Members Removed",
-                Description = $"Removed {((List<ReminderGroupMember>)membersToRemove).Count} members from \"{group.Name}\"",
+                Description = $"Removed {membersToRemove.Count} members from \"{group.Name}\"",
                 Timestamp = DateTime.UtcNow,
                 Color = VGDCColors.Cerulean,
                 Fields = 
@@ -409,7 +409,7 @@ namespace JohnVGDCBot
                     var reminderGroup = await db.ReminderGroups
                         .Include(rg => rg.Members)
                         .SingleOrDefaultAsync(rg => rg.GuildId == reminder.GuildId && rg.Name == reminder.GroupName);
-                    if (reminderGroup == null) return;
+                    if (reminderGroup == null) continue;
 
                     var mentionsList = reminderGroup.Members
                         .Select(m => m.IsRole
@@ -439,7 +439,7 @@ namespace JohnVGDCBot
             [SlashCommandParameter(Name = "day", Description = "The day on which you want to be reminded", MinValue = 1, MaxValue = 31)] int day,
             [SlashCommandParameter(Name = "month", Description = "The month on which you want to be reminded")] Month month,
             [SlashCommandParameter(Name = "year", Description = "The year on which you want to be reminded", AutocompleteProviderType = typeof(YearAutocompleteProvider))] int year,
-            [SlashCommandParameter(Name = "hour", Description = "The hour at which you want to be reminded", AutocompleteProviderType = typeof(HourAutocompleteProvider))] int hour,
+            [SlashCommandParameter(Name = "hour", Description = "The hour at which you want to be reminded (UTC)", AutocompleteProviderType = typeof(HourAutocompleteProvider))] int hour,
             [SlashCommandParameter(Name = "minute", Description = "The minute at which you want to be reminded", MinValue = 0, MaxValue = 59)] int minute,
             [SlashCommandParameter(Name = "group", Description = "The name of the group to send the reminder to.")] string? group = null,
             [SlashCommandParameter(Name = "frequency", Description = "The name of the group to send the reminder to (default: One Time)")] Frequency frequency = Frequency.OneTime,
@@ -449,18 +449,17 @@ namespace JohnVGDCBot
             var guild = Context.Guild;
             var currentChannel = Context.Channel;
 
-            DateTime reminderDateLocal;
+            DateTime reminderDateUTC;
             try
             {
-                reminderDateLocal = new(year, (int)month, day, hour, minute, 0, DateTimeKind.Local);
-            } 
+                reminderDateUTC = new(year, (int)month, day, hour, minute, 0, DateTimeKind.Utc);
+            }
             catch (ArgumentOutOfRangeException)
             {
                 await RespondError($"❌ Invalid date or time.");
                 return;
             }
 
-            DateTime reminderDateUTC = reminderDateLocal.ToUniversalTime();
             if (reminderDateUTC < DateTime.UtcNow)
             {
                 await RespondError($"❌ Reminder date and time must be in the future.");
