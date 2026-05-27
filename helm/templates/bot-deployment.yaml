@@ -19,6 +19,9 @@ spec:
       - name: sqlite-data
         persistentVolumeClaim:
           claimName: sqlite-pvc
+      - name: appsettings-secret
+        secret:
+          secretName: app-settings
       imagePullSecrets:
       - name: ghcr-pull-secret
       containers:
@@ -26,13 +29,15 @@ spec:
         image: {{ .Values.image.name }}:{{ .Values.image.tag | default "latest" }}
         imagePullPolicy: Always
         envFrom:
-        - secretRef:
-            name: vgdc-discord-bot-token
         - configMapRef:
             name: bot-config
         volumeMounts:
         - name: sqlite-data
           mountPath: /data
+        - name: appsettings-secret
+          mountpath: /app/appsettings.json
+          subpath: appsettings.json
+          readOnly: true
         livenessProbe:
           exec:
             command:
