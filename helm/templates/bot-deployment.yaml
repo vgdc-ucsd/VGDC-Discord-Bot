@@ -40,18 +40,10 @@ spec:
           mountPath: /app/appsettings.json
           subPath: appsettings.json
           readOnly: true
-        livenessProbe:
-          exec:
-            command:
-            - pgrep
-            - -f
-            - vgdc-discord-bot
-          initialDelaySeconds: 10
-          periodSeconds: 30
         resources:
           requests:
-            memory: "128Mi"
             cpu: "100m"
+            memory: "128Mi"
           limits:
-            memory: "256Mi"
             cpu: "500m"
+            memory: "512Mi"
