@@ -8,7 +8,8 @@ public class UnitTest1
     [Fact]
     public async Task WheelVideoTest()
     {
-        var options = new[] { "Apples", "Bananas", "Coconuts", "Durians", "Eggplants", "Frumboblumfuggins" };
+        System.Diagnostics.Debugger.Launch();
+        var options = new[] { "did ethan sanitize his inputs \n\n %s ## # || hello || @perilune (Jacky)"};
         var rand = new Random();
         float randomAngle = (float)rand.NextDouble() * 360f;
         string selectedOption = options[WheelModule.GetSectorIndex(randomAngle, options.Length)];

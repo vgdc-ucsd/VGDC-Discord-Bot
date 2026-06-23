@@ -134,7 +134,10 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
                 for (int j = 0; j < sectorCount; j++)
                 {
                     canvas.Save();
-                    canvas.RotateDegrees(degreesPerSector * (0.5f + j) + t * finalAngle, FRAME_WIDTH / 2f, FRAME_HEIGHT / 2f);
+                    float rotation = sectorCount > 1
+                        ? degreesPerSector * (0.5f + j) + t * finalAngle
+                        : t * finalAngle;
+                    canvas.RotateDegrees(rotation, FRAME_WIDTH / 2f, FRAME_HEIGHT / 2f);
                     paint.Color = SKColors.Black;
                     font.Size = fontSizes[j];
                     font.MeasureText(options[j], out var fontRect, paint);
@@ -175,7 +178,9 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
         float degreesPerSector = 360f / sectorCount;
         float wheelRadius = FRAME_WIDTH / 2f - WHEEL_MARGIN;
         float availableWidth = wheelRadius - CENTER_CIRCLE_RADIUS - 2f * TEXT_MARGIN;
-        float availableHeight = 2f * (wheelRadius * MathF.Sin(degreesPerSector / 2f * MathF.PI / 180f) - MIN_TEXT_SECTOR_GAP);
+        float availableHeight = sectorCount > 1
+            ? 2f * (wheelRadius * MathF.Sin(degreesPerSector / 2f * MathF.PI / 180f) - MIN_TEXT_SECTOR_GAP)
+            : FRAME_HEIGHT - 2f * WHEEL_MARGIN - 2f * MIN_TEXT_SECTOR_GAP;
 
         using var measurePaint = new SKPaint { IsAntialias = true };
         using var measureFont = new SKFont(typeface, BASE_FONT_SIZE);
