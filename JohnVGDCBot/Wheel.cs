@@ -41,11 +41,13 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
 
         try
         {
-            await using var stream = await CreateWheelVideo(optionsList, randomAngle);
+            byte[] videoBytes;
+            await using (var ms = await CreateWheelVideo(optionsList, randomAngle))
+                videoBytes = ms.ToArray();
 
             await ModifyResponseAsync(m =>
             {
-                m.Attachments = [new AttachmentProperties("wheel.webp", stream)];
+                m.Attachments = [new AttachmentProperties("wheel.webp", new MemoryStream(videoBytes))];
             });
 
             await Task.Delay(TimeSpan.FromSeconds(SPIN_DURATION));
@@ -53,6 +55,7 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
             await ModifyResponseAsync(m =>
             {
                 m.Content = $"**We have a winner!**\n## {selectedOption}";
+                m.Attachments = [new AttachmentProperties("wheel.webp", new MemoryStream(videoBytes))];
             });
         }
         catch (Exception ex)
