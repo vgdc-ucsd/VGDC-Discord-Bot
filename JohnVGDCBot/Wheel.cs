@@ -19,7 +19,7 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
     private const int FRAME_WIDTH = 400;
     private const int FRAME_HEIGHT = 400;
     private const float CENTER_CIRCLE_RADIUS = 30f;
-    private const float BASE_FONT_SIZE = 30f;
+    private const float BASE_FONT_SIZE = 46f;
     private const float TEXT_MARGIN = 20f;
     private const float MIN_TEXT_SECTOR_GAP = 4f;
     private const float WHEEL_MARGIN = 20f;
@@ -142,6 +142,7 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
                 paint.Color = SKColors.Black;
                 paint.Style = SKPaintStyle.Stroke;
                 canvas.DrawCircle(FRAME_WIDTH / 2, FRAME_HEIGHT / 2, FRAME_WIDTH / 2 - margin, paint);
+                canvas.DrawCircle(FRAME_WIDTH / 2, FRAME_HEIGHT / 2, CENTER_CIRCLE_RADIUS, paint);
                 paint.Style = SKPaintStyle.Fill;
 
                 for (int j = 0; j < sectorCount; j++)
