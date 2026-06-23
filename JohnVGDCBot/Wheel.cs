@@ -36,22 +36,24 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
     {
         string[] optionsList = [.. options.Split(',').Select(o => o.Trim())];
 
+        await RespondAsync(InteractionCallback.DeferredMessage());
+
         var random = new Random();
         float randomAngle = (float)random.NextDouble() * 360f;
         string selectedOption = optionsList[GetSectorIndex(randomAngle, optionsList.Length)];
 
         using var stream = await CreateWheelVideo(optionsList, randomAngle);
 
-        await RespondAsync(InteractionCallback.Message(new()
+        await ModifyResponseAsync(m => 
         {
-            Attachments = [new AttachmentProperties("wheel.webp", stream)],
-        }));
+            m.Attachments = [new AttachmentProperties("wheel.webp", stream)];
+        });
 
         await Task.Delay(TimeSpan.FromSeconds(SPIN_DURATION));
 
         await ModifyResponseAsync(m =>
         {
-            m.Content = $"**We have a winner!\n## {selectedOption}";
+            m.Content = $"**We have a winner!**\n## {selectedOption}";
         });
     }
 
@@ -223,7 +225,7 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
     }
 
     public static int GetSectorIndex(float angleDegrees, int totalSectors)
-        => (int)((1f - Wrap(angleDegrees, 0f, 360f) / 360f) * totalSectors);
+        => (int)((1f - Wrap(angleDegrees, 0f, 360f) / 360f) * totalSectors) % totalSectors;
 
     public static float Smoothstep(float x) => 3f * x * x - 2 * x * x * x;
     public static float EaseInOutCirc(float x) => x < 0.5f
