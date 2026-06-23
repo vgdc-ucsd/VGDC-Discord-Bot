@@ -42,19 +42,28 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
         float randomAngle = (float)random.NextDouble() * 360f;
         string selectedOption = optionsList[GetSectorIndex(randomAngle, optionsList.Length)];
 
-        using var stream = await CreateWheelVideo(optionsList, randomAngle);
-
-        await ModifyResponseAsync(m => 
+        try
         {
-            m.Attachments = [new AttachmentProperties("wheel.webp", stream)];
-        });
+            await using var stream = await CreateWheelVideo(optionsList, randomAngle);
 
-        await Task.Delay(TimeSpan.FromSeconds(SPIN_DURATION));
+            await ModifyResponseAsync(m => 
+            {
+                m.Attachments = [new AttachmentProperties("wheel.webp", stream)];
+            });
 
-        await ModifyResponseAsync(m =>
+            await Task.Delay(TimeSpan.FromSeconds(SPIN_DURATION));
+
+            await ModifyResponseAsync(m =>
+            {
+                m.Content = $"**We have a winner!**\n## {selectedOption}";
+                m.Attachments = [new AttachmentProperties("wheel.webp", stream)];
+            });
+        }
+        catch (Exception ex)
         {
-            m.Content = $"**We have a winner!**\n## {selectedOption}";
-        });
+            Console.Error.WriteLine($"CreateWheelVideo failed: {ex}");
+            await ModifyResponseAsync(m => m.Content = "Something went wrong generating the wheel");
+        }
     }
 
     // Bullshit vibecoded workaround for FFMpeg bug
