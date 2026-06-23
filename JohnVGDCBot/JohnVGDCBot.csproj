@@ -10,6 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="FFMpegCore" Version="5.4.0" />
+    <PackageReference Include="FFMpegCore.Extensions.SkiaSharp" Version="5.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -28,9 +30,14 @@
     <PackageReference Include="Quartz" Version="3.18.1" />
     <PackageReference Include="Quartz.Extensions.Hosting" Version="3.18.1" />
     <PackageReference Include="Quartz.Serialization.Json" Version="3.18.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
     <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
     <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.15" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="WheelBot.Tests\**" />
+  </ItemGroup>
+
   <ItemGroup>
       <None Update="appsettings.json">
           <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
