@@ -19,7 +19,7 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
     private const int FRAME_WIDTH = 400;
     private const int FRAME_HEIGHT = 400;
     private const float CENTER_CIRCLE_RADIUS = 30f;
-    private const float BASE_FONT_SIZE = 46f;
+    private const float BASE_FONT_SIZE = 32f;
     private const float TEXT_MARGIN = 20f;
     private const float MIN_TEXT_SECTOR_GAP = 4f;
     private const float WHEEL_MARGIN = 20f;
@@ -29,7 +29,7 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
     public static SKColor NetcordColorToSkColor(NetCord.Color color)
         => new(color.Red, color.Green, color.Blue);
 
-    [SlashCommand("list", "Spins a wheel with the provided options")]
+    [SlashCommand("wheel", "Spins a wheel with the provided options")]
     public async Task SpinList(
         [SlashCommandParameter(Name = "options", Description = "A list of comma separated options (e.g. apple, banana")] string options
         )
@@ -100,7 +100,10 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
         var bitmaps = new List<SKBitmap>();
         try
         {
-            var font = new SKFont();
+            var assembly = typeof(WheelModule).Assembly;
+            using var fontStream = assembly.GetManifestResourceStream("JohnVGDCBot.Fonts.Inter_28pt-SemiBold.ttf");
+            var typeface = SKTypeface.FromStream(fontStream);
+            var font = new SKFont(typeface, BASE_FONT_SIZE);
 
             int frameCount = (int)(SPIN_DURATION * FPS);
             for (int i = 0; i < frameCount; i++)
