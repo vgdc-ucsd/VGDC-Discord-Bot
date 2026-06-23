@@ -409,7 +409,7 @@ namespace JohnVGDCBot
                     var reminderGroup = await db.ReminderGroups
                         .Include(rg => rg.Members)
                         .SingleOrDefaultAsync(rg => rg.GuildId == reminder.GuildId && rg.Name == reminder.GroupName);
-                    if (reminderGroup == null) continue;
+                    if (reminderGroup == null) return;
 
                     var mentionsList = reminderGroup.Members
                         .Select(m => m.IsRole
