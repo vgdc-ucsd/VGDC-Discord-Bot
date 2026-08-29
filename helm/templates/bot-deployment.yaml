@@ -24,8 +24,6 @@ spec:
           secretName: app-settings
       securityContext:
         fsGroup: 1000
-      imagePullSecrets:
-      - name: ghcr-pull-secret
       containers:
       - name: bot
         image: {{ .Values.image.name }}:{{ .Values.image.tag | default "latest" }}
