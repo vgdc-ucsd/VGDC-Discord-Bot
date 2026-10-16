@@ -42,7 +42,8 @@
       <None Update="appsettings.json">
           <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
-      <EmbeddedResource Include="Fonts\Inter_28pt-SemiBold.ttf" />
+      <EmbeddedResource Include="Fonts\Bungee-Regular.ttf" />
+      <EmbeddedResource Include="Assets\*.png" />
   </ItemGroup>
 
 </Project>
