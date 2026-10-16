@@ -13,15 +13,33 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
     private const float RESULT_DURATION = 2.0f;
     private const float FULL_ROTATIONS = 3f;
 
-    private const int FRAME_WIDTH = 400;
-    private const int FRAME_HEIGHT = 400;
-    private const float CENTER_CIRCLE_RADIUS = 30f;
+    private const int OUTPUT_SIZE = 512;
+    private const float CENTER = OUTPUT_SIZE / 2f;
     private const float BASE_FONT_SIZE = 32f;
     private const float TEXT_MARGIN = 20f;
     private const float MIN_TEXT_SECTOR_GAP = 4f;
-    private const float WHEEL_MARGIN = 20f;
-    private const float SELECTOR_WIDTH = 30f;
-    private const float SELECTOR_ARC_LENGTH = 30f;
+    private const int MAX_OPTIONS = 30;
+
+    // Pixel measurements from Assets/WheelFrame.png (1126x1110), update if the art changes
+    private const float ART_CENTER_X = 562.5f;
+    private const float ART_CENTER_Y = 558f;
+    private const float ART_RING_RADIUS = 414f;
+    private const float ART_HUB_RADIUS = 66f;
+    private const float ART_EXTENT = 556f;
+
+    private const float ART_SCALE = CENTER / ART_EXTENT;
+    private const float WHEEL_RADIUS = ART_RING_RADIUS * ART_SCALE;
+    private const float HUB_RADIUS = ART_HUB_RADIUS * ART_SCALE;
+
+    private static readonly SKColor[] WheelColors = [
+        NetcordColorToSkColor(VGDCColors.Teal),
+        NetcordColorToSkColor(VGDCColors.Cerulean),
+        NetcordColorToSkColor(VGDCColors.Aqua),
+        NetcordColorToSkColor(VGDCColors.Mint),
+    ];
+
+    private static readonly Lazy<SKTypeface> Typeface = new(() => SKTypeface.FromStream(OpenResource("Fonts.Bungee-Regular.ttf")));
+    private static readonly Lazy<SKImage> Overlay = new(CreateOverlay);
 
     public static SKColor NetcordColorToSkColor(NetCord.Color color)
         => new(color.Red, color.Green, color.Blue);
@@ -31,7 +49,16 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
         [SlashCommandParameter(Name = "options", Description = "A list of comma separated options (e.g. apple, banana")] string options
         )
     {
-        string[] optionsList = [.. options.Split(',').Select(o => o.Trim())];
+        string[] optionsList = options.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (optionsList.Length == 0 || optionsList.Length > MAX_OPTIONS)
+        {
+            await RespondAsync(InteractionCallback.Message(new()
+            {
+                Content = $"Give me between 1 and {MAX_OPTIONS} options, separated by commas",
+                Flags = NetCord.MessageFlags.Ephemeral,
+            }));
+            return;
+        }
 
         await RespondAsync(InteractionCallback.DeferredMessage());
 
@@ -68,41 +95,26 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
     private sealed class WheelFramePipeSource(
         string[] options,
         float randomAngle,
-        float[] fontSizes,
-        SKColor[] colors,
-        SKTypeface typeface) : IPipeSource
+        float[] fontSizes) : IPipeSource
     {
         public string GetStreamArguments() =>
-            $"-f rawvideo -r {FPS} -pix_fmt bgra -s {FRAME_WIDTH}x{FRAME_HEIGHT}";
+            $"-f rawvideo -r {FPS} -pix_fmt bgra -s {OUTPUT_SIZE}x{OUTPUT_SIZE}";
 
         public async Task WriteAsync(Stream outputStream, CancellationToken cancellationToken)
         {
-            int sectorCount = options.Length;
-            float degreesPerSector = 360f / sectorCount;
             float finalAngle = 360f * FULL_ROTATIONS + randomAngle;
-            float margin = WHEEL_MARGIN;
-            var rect = new SKRect(margin, margin, FRAME_WIDTH - margin, FRAME_HEIGHT - margin);
 
-            using var paint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, StrokeWidth = 2f };
-            using var font = new SKFont(typeface, BASE_FONT_SIZE);
+            using var paint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+            using var font = new SKFont(Typeface.Value, BASE_FONT_SIZE);
 
-            var info = new SKImageInfo(FRAME_WIDTH, FRAME_HEIGHT, SKColorType.Bgra8888, SKAlphaType.Opaque);
-            using var bitmap = new SKBitmap(info);
+            // ffmpeg expects straight alpha but skia draws premultiplied, so convert each frame before writing
+            using var bitmap = new SKBitmap(new SKImageInfo(OUTPUT_SIZE, OUTPUT_SIZE, SKColorType.Bgra8888, SKAlphaType.Premul));
             using var canvas = new SKCanvas(bitmap);
+            using var unpremulBitmap = new SKBitmap(new SKImageInfo(OUTPUT_SIZE, OUTPUT_SIZE, SKColorType.Bgra8888, SKAlphaType.Unpremul));
+            using var srcPixmap = bitmap.PeekPixels();
+            using var dstPixmap = unpremulBitmap.PeekPixels();
 
-            float halfAngle = SELECTOR_ARC_LENGTH / 2f * MathF.PI / 180f;
-            SKPoint selectorHeadPos = new(FRAME_WIDTH - margin - 0.75f * SELECTOR_WIDTH, FRAME_HEIGHT / 2f);
-            SKPoint selectorUpperPos = new(selectorHeadPos.X + SELECTOR_WIDTH * MathF.Cos(halfAngle),
-                                selectorHeadPos.Y - SELECTOR_WIDTH * MathF.Sin(halfAngle));
-            SKPoint selectorLowerPos = new(selectorHeadPos.X + SELECTOR_WIDTH * MathF.Cos(halfAngle),
-                                selectorHeadPos.Y + SELECTOR_WIDTH * MathF.Sin(halfAngle));
-            using var selectorPath = new SKPath();
-            selectorPath.MoveTo(selectorHeadPos);
-            selectorPath.LineTo(selectorUpperPos);
-            selectorPath.LineTo(selectorLowerPos);
-            selectorPath.Close();
-
-            byte[] buffer = new byte[FRAME_WIDTH * FRAME_HEIGHT * 4];
+            byte[] buffer = new byte[OUTPUT_SIZE * OUTPUT_SIZE * 4];
 
             int frameCount = (int)(SPIN_DURATION * FPS);
             int resultFrameCount = (int)(RESULT_DURATION * FPS);
@@ -112,78 +124,88 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
                 if (cancellationToken.IsCancellationRequested) break;
 
                 float t = i < frameCount ? EaseInOutQuint((float)i / frameCount) : 1f;
+                DrawWheelFrame(canvas, options, fontSizes, font, paint, t * finalAngle);
 
-                canvas.Clear(SKColors.White);
-
-                paint.Style = SKPaintStyle.Fill;
-                for (int j = 0; j < sectorCount; j++)
-                {
-                    paint.Color = GetSectorColor(j, sectorCount, colors);
-                    canvas.DrawArc(rect, j * degreesPerSector + t * finalAngle, degreesPerSector, true, paint);
-                }
-
-                paint.Color = SKColors.White;
-                canvas.DrawCircle(FRAME_WIDTH / 2, FRAME_HEIGHT / 2, CENTER_CIRCLE_RADIUS, paint);
-
-                paint.Color = SKColors.Black;
-                paint.Style = SKPaintStyle.Stroke;
-                canvas.DrawCircle(FRAME_WIDTH / 2, FRAME_HEIGHT / 2, FRAME_WIDTH / 2 - margin, paint);
-                canvas.DrawCircle(FRAME_WIDTH / 2, FRAME_HEIGHT / 2, CENTER_CIRCLE_RADIUS, paint);
-                paint.Style = SKPaintStyle.Fill;
-
-                for (int j = 0; j < sectorCount; j++)
-                {
-                    canvas.Save();
-                    float rotation = sectorCount > 1
-                        ? degreesPerSector * (0.5f + j) + t * finalAngle
-                        : t * finalAngle;
-                    canvas.RotateDegrees(rotation, FRAME_WIDTH / 2f, FRAME_HEIGHT / 2f);
-                    paint.Color = SKColors.Black;
-                    font.Size = fontSizes[j];
-                    font.MeasureText(options[j], out var fontRect, paint);
-                    canvas.DrawText(options[j], FRAME_WIDTH - margin - TEXT_MARGIN, FRAME_HEIGHT / 2f + fontRect.Height / 2f, SKTextAlign.Right, font, paint);
-                    canvas.Restore();
-                }
-
-                paint.Style = SKPaintStyle.Fill;
-                paint.Color = GetSectorColor(GetSectorIndex(t * finalAngle, options.Length), sectorCount, colors);
-                canvas.DrawPath(selectorPath, paint);
-                paint.Color = SKColors.Black;
-                paint.Style = SKPaintStyle.Stroke;
-                canvas.DrawPath(selectorPath, paint);
-
-                bitmap.GetPixelSpan().CopyTo(buffer);
+                srcPixmap.ReadPixels(dstPixmap);
+                unpremulBitmap.GetPixelSpan().CopyTo(buffer);
                 await outputStream.WriteAsync(buffer, cancellationToken);
             }
         }
     }
 
-    public static async Task<MemoryStream> CreateWheelVideo(string[] options, float randomAngle)
+    private static void DrawWheelFrame(SKCanvas canvas, string[] options, float[] fontSizes, SKFont font, SKPaint paint, float rotation)
     {
-        var output = new MemoryStream();
-        var sink = new StreamPipeSink(output);
-
-        SKColor[] colors = [
-            NetcordColorToSkColor(VGDCColors.Teal),
-            NetcordColorToSkColor(VGDCColors.Cerulean),
-            NetcordColorToSkColor(VGDCColors.Aqua),
-            NetcordColorToSkColor(VGDCColors.Mint),
-        ];
-
-        var assembly = typeof(WheelModule).Assembly;
-        using var fontStream = assembly.GetManifestResourceStream("JohnVGDCBot.Fonts.Inter_28pt-SemiBold.ttf");
-        var typeface = SKTypeface.FromStream(fontStream);
-
         int sectorCount = options.Length;
         float degreesPerSector = 360f / sectorCount;
-        float wheelRadius = FRAME_WIDTH / 2f - WHEEL_MARGIN;
-        float availableWidth = wheelRadius - CENTER_CIRCLE_RADIUS - 2f * TEXT_MARGIN;
+        var rect = new SKRect(CENTER - WHEEL_RADIUS, CENTER - WHEEL_RADIUS, CENTER + WHEEL_RADIUS, CENTER + WHEEL_RADIUS);
+
+        canvas.Clear(SKColors.Transparent);
+
+        paint.Style = SKPaintStyle.Fill;
+        for (int j = 0; j < sectorCount; j++)
+        {
+            paint.Color = GetSectorColor(j, sectorCount, WheelColors);
+            canvas.DrawArc(rect, j * degreesPerSector + rotation, degreesPerSector, true, paint);
+        }
+
+        paint.Color = SKColors.Black;
+        for (int j = 0; j < sectorCount; j++)
+        {
+            canvas.Save();
+            float labelRotation = sectorCount > 1
+                ? degreesPerSector * (0.5f + j) + rotation
+                : rotation;
+            canvas.RotateDegrees(labelRotation, CENTER, CENTER);
+            font.Size = fontSizes[j];
+            font.MeasureText(options[j], out var fontRect, paint);
+            canvas.DrawText(options[j], CENTER + WHEEL_RADIUS - TEXT_MARGIN, CENTER + fontRect.Height / 2f, SKTextAlign.Right, font, paint);
+            canvas.Restore();
+        }
+
+        canvas.DrawImage(Overlay.Value, 0, 0);
+    }
+
+    private static SKImage CreateOverlay()
+    {
+        using var frame = LoadImage("Assets.WheelFrame.png");
+        using var pointer = LoadImage("Assets.WheelPointer.png");
+
+        using var surface = SKSurface.Create(new SKImageInfo(OUTPUT_SIZE, OUTPUT_SIZE, SKColorType.Bgra8888, SKAlphaType.Premul));
+        var canvas = surface.Canvas;
+        canvas.Clear(SKColors.Transparent);
+        canvas.Translate(CENTER, CENTER);
+        canvas.Scale(ART_SCALE);
+        canvas.Translate(-ART_CENTER_X, -ART_CENTER_Y);
+
+        var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        canvas.DrawImage(frame, 0, 0, sampling);
+        canvas.DrawImage(pointer, 0, 0, sampling);
+
+        return surface.Snapshot();
+    }
+
+    private static Stream OpenResource(string name) =>
+        typeof(WheelModule).Assembly.GetManifestResourceStream($"JohnVGDCBot.{name}")
+            ?? throw new InvalidOperationException($"Missing embedded resource {name}");
+
+    private static SKImage LoadImage(string name)
+    {
+        using var stream = OpenResource(name);
+        using var data = SKData.Create(stream);
+        return SKImage.FromEncodedData(data);
+    }
+
+    private static float[] GetFontSizes(string[] options)
+    {
+        int sectorCount = options.Length;
+        float degreesPerSector = 360f / sectorCount;
+        float availableWidth = WHEEL_RADIUS - HUB_RADIUS - 2f * TEXT_MARGIN;
         float availableHeight = sectorCount > 1
-            ? 2f * (wheelRadius * MathF.Sin(degreesPerSector / 2f * MathF.PI / 180f) - MIN_TEXT_SECTOR_GAP)
-            : FRAME_HEIGHT - 2f * WHEEL_MARGIN - 2f * MIN_TEXT_SECTOR_GAP;
+            ? 2f * (WHEEL_RADIUS * MathF.Sin(degreesPerSector / 2f * MathF.PI / 180f) - MIN_TEXT_SECTOR_GAP)
+            : 2f * (WHEEL_RADIUS - MIN_TEXT_SECTOR_GAP);
 
         using var measurePaint = new SKPaint { IsAntialias = true };
-        using var measureFont = new SKFont(typeface, BASE_FONT_SIZE);
+        using var measureFont = new SKFont(Typeface.Value, BASE_FONT_SIZE);
         float[] fontSizes = new float[sectorCount];
         for (int j = 0; j < sectorCount; j++)
         {
@@ -197,19 +219,43 @@ public partial class WheelModule : ApplicationCommandModule<ApplicationCommandCo
             }
             fontSizes[j] = measureFont.Size;
         }
+        return fontSizes;
+    }
 
-        var source = new WheelFramePipeSource(options, randomAngle, fontSizes, colors, typeface);
+    public static async Task<MemoryStream> CreateWheelVideo(string[] options, float randomAngle)
+    {
+        var output = new MemoryStream();
+        var sink = new StreamPipeSink(output);
+
+        var source = new WheelFramePipeSource(options, randomAngle, GetFontSizes(options));
         await FFMpegArguments
             .FromPipeInput(source)
             .OutputToPipe(sink, o => o
                 .WithVideoCodec("libwebp_anim")
+                .WithCustomArgument("-pix_fmt yuva420p")
                 .WithCustomArgument("-loop 0")
-                .WithCustomArgument("-lossless 1")
+                .WithCustomArgument("-lossless 0")
+                .WithCustomArgument("-quality 80")
                 .ForceFormat("webp"))
             .ProcessAsynchronously();
 
         output.Position = 0;
         return output;
+    }
+
+    // Still of the last frame, handy for checking the art in tests
+    public static byte[] RenderFinalFramePng(string[] options, float randomAngle)
+    {
+        float[] fontSizes = GetFontSizes(options);
+
+        using var paint = new SKPaint { IsAntialias = true };
+        using var font = new SKFont(Typeface.Value, BASE_FONT_SIZE);
+        using var bitmap = new SKBitmap(new SKImageInfo(OUTPUT_SIZE, OUTPUT_SIZE, SKColorType.Bgra8888, SKAlphaType.Premul));
+        using var canvas = new SKCanvas(bitmap);
+        DrawWheelFrame(canvas, options, fontSizes, font, paint, 360f * FULL_ROTATIONS + randomAngle);
+
+        using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
+        return data.ToArray();
     }
 
     public static SKColor GetSectorColor(int sectorIndex, int sectorCount, SKColor[] colors) =>
