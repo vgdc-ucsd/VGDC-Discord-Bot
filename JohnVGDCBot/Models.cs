@@ -22,10 +22,21 @@ namespace JohnVGDCBot
         public List<ReminderGroupMember> Members { get; set; } = [];
     }
 
+    public class KeyHolding
+    {
+        public int Id { get; set; }
+        public ulong GuildId { get; set; }
+        public ulong HolderID { get; set; }
+        public DateTime AcquiredAt { get; set; }
+        public DateTime? ReleasedAt { get; set; }
+        public ulong RecordedById { get; set; }
+    }
+
     public class BotDbContext(DbContextOptions<BotDbContext> options) : DbContext(options)
     {
         public DbSet<ReminderGroup> ReminderGroups => Set<ReminderGroup>();
         public DbSet<ReminderGroupMember> ReminderGroupMembers => Set<ReminderGroupMember>();
+        public DbSet<KeyHolding> KeyHoldings => Set<KeyHolding>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -35,6 +46,23 @@ namespace JohnVGDCBot
             modelBuilder.Entity<ReminderGroup>()
                 .Property(m => m.GuildId)
                 .HasConversion<string>();
+
+            modelBuilder.Entity<KeyHolding>()
+                .HasIndex(h => new { h.GuildId, h.HolderID })
+                .IsUnique()
+                .HasFilter("ReleasedAt IS NULL");
+            modelBuilder.Entity<KeyHolding>()
+                .Property(m => m.GuildId)
+                .HasConversion<string>();
+            modelBuilder.Entity<KeyHolding>()
+                .Property(m => m.HolderID)
+                .HasConversion<string>();
+            modelBuilder.Entity<KeyHolding>()
+                .Property(m => m.RecordedById)
+                .HasConversion<string>();
+            modelBuilder.Entity<KeyHolding>()
+                .Property(m => m.ReleasedAt)
+                .IsConcurrencyToken();
         }
     }
 }

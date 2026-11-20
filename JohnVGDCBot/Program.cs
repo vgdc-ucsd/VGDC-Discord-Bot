@@ -17,6 +17,8 @@ appBuilder.Services.AddDbContext<BotDbContext>(o =>
 {
     o.UseSqlite($"Data Source={dbPath}");
 });
+appBuilder.Services.Configure<KeyTrackerOptions>(
+    appBuilder.Configuration.GetSection("KeyTracker"));
 appBuilder.Services
     .AddDiscordGateway()
     .AddApplicationCommands();
